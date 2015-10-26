@@ -16,11 +16,26 @@ var ACTIONS = [
     'TRIGGER'
 ];
 
-var client = new pg.Client([
-    'postgres://' + config.username + ':' + config.password + '@',
-    config.hostname + (config.port ? ':' + config.port : '') + '/',
-    config.database,
-].join(''));
+/** Hold a reference to a `pg.Client`. Configured in the module's export. */
+var client;
+
+/**
+ * Get a connection string from a configuration object.
+ *
+ * @param  {object}           config
+ * @param  {string}           config.username
+ * @param  {string}           config.password
+ * @param  {(number|string)=} config.port
+ * @param  {string}           config.database
+ * @return {string}                           Postgres connection string
+ */
+function getConnectionString(config) {
+    return [
+        'postgres://' + config.username + ':' + config.password + '@',
+        config.hostname + (config.port ? ':' + config.port : '') + '/',
+        config.database,
+    ].join('');
+}
 
 /**
  * Does a privileges list contain all priveleges?
@@ -208,10 +223,24 @@ function getDependentViewsFromViewName(viewName) {
 /**
  * Get view data from tablename.
  *
- * @param  {string} tableName
+ * @param  {object|string} tableName
  * @return {Promise}
  */
-module.exports = function getViewDataFromTableName(tableName) {
+module.exports = function getViewDataFromTableName(
+    connectionConfig,
+    tableName
+) {
+    if (!connectionConfig) {
+        throw new Error('PG connection configuration required');
+    }
+
+    var connectionString = connectionConfig instanceof Object ?
+        getConnectionString(connectionConfig) :
+        connectionConfig;
+
+    /** Mutate module-level `client` for internal use */
+    client = new pg.Client(connectionString);
+
     return new Promise(function(resolve, reject) {
         client.connect(function(error) {
             if (error) {
