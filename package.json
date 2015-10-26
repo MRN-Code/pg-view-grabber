@@ -1,0 +1,13 @@
+{
+  "name": "pg-view-grabber",
+  "version": "1.0.0",
+  "description": "Grab view information from a Postgres database.",
+  "main": "index.js",
+  "author": "Cory Reed <creed@mrn.org>",
+  "license": "MIT",
+  "dependencies": {
+    "bluebird": "^2.10.2",
+    "config": "^1.16.0",
+    "pg": "^4.4.3"
+  }
+}
