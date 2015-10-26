@@ -9,5 +9,13 @@
     "bluebird": "^2.10.2",
     "config": "^1.16.0",
     "pg": "^4.4.3"
+  },
+  "homepage": "https://github.com/MRN-Code/pg-view-grabber#readme",
+  "bugs": {
+    "url": "https://github.com/MRN-Code/pg-view-grabber/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/MRN-Code/pg-view-grabber"
   }
 }
