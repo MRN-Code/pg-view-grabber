@@ -5,48 +5,12 @@
 var pg = require('pg');
 var Promise = require('bluebird');
 
-var ACTIONS = [
-    'INSERT',
-    'SELECT',
-    'UPDATE',
-    'DELETE',
-    'TRUNCATE',
-    'REFERENCES',
-    'TRIGGER'
-];
+var hasAllPrivileges = require('./utils/has-all-privileges.js');
+var removeEmptiesAndDuplicates =
+    require('./utils/remove-empties-and-duplicates.js');
 
 /** Hold a reference to a `pg.Client`. Configured in the module's export. */
 var client;
-
-/**
- * Get a connection string from a configuration object.
- *
- * @param  {object}           config
- * @param  {string}           config.username
- * @param  {string}           config.password
- * @param  {(number|string)=} config.port
- * @param  {string}           config.database
- * @return {string}                           Postgres connection string
- */
-function getConnectionString(config) {
-    return [
-        'postgres://' + config.username + ':' + config.password + '@',
-        config.hostname + (config.port ? ':' + config.port : '') + '/',
-        config.database,
-    ].join('');
-}
-
-/**
- * Does a privileges list contain all priveleges?
- *
- * @param  {string}  priveleges
- * @return {boolean}
- */
-function hasAllPriveleges(priveleges) {
-    return ACTIONS.every(function(action) {
-        return priveleges.indexOf(action) !== -1;
-    });
-}
 
 /**
  * Get view permissions
@@ -55,16 +19,19 @@ function hasAllPriveleges(priveleges) {
  * @return {Promise}          Resolves to an array of permissions lines
  */
 function getViewPermissions(viewName) {
+    var queryString = [
+        'SELECT grantee, string_agg(privilege_type, \', \') AS privileges',
+        'FROM information_schema.role_table_grants',
+        'WHERE table_name=\'' + viewName + '\'',
+        'GROUP BY grantee;',
+    ].join('\n');
+
     return new Promise(function(resolve, reject) {
-        client.query([
-            'SELECT grantee, string_agg(privilege_type, \', \') AS privileges',
-            'FROM information_schema.role_table_grants',
-            'WHERE table_name=\'' + viewName + '\'',
-            'GROUP BY grantee;'
-        ].join('\n'), function(error, response) {
+        client.query(queryString, function(error, response) {
             if (error) {
-                resolve(error);
+                return reject(error);
             }
+
             resolve(response.rows);
         });
     })
@@ -76,7 +43,7 @@ function getViewPermissions(viewName) {
                     if (permission && permission.privileges) {
                         output += 'GRANT ';
 
-                        if (hasAllPriveleges(permission.privileges)) {
+                        if (hasAllPrivileges(permission.privileges)) {
                             output += 'ALL ';
                         } else {
                             output += permission.privileges + ' ';
@@ -110,9 +77,8 @@ function getViewData(viewName) {
         new Promise(function(resolve, reject) {
             client.query(queryString, function(error, response) {
                 if (error) {
-                    reject(error);
+                    return reject(error);
                 }
-
                 resolve(response.rows);
             });
         }),
@@ -165,16 +131,20 @@ function getDependentViewsFromTableName(tableName) {
     return new Promise(function(resolve, reject) {
         client.query(queryString, function(error, response) {
             if (error) {
-                reject(error);
+                return reject(error);
             }
 
             resolve(response.rows);
         });
     })
         .then(function(rows) {
-            return rows.map(function(row) {
-                return row.view_name;
-            });
+            return rows
+                .map(function(row) {
+                    return row.view_name;
+                })
+                .filter(function(viewName) {
+                    return viewName !== tableName;
+                });
         });
 }
 
@@ -203,7 +173,7 @@ function getDependentViewsFromViewName(viewName) {
     return new Promise(function(resolve, reject) {
         client.query(queryString, function(error, response) {
             if (error) {
-                reject(error);
+                return reject(error);
             }
             resolve(response.rows);
         });
@@ -220,25 +190,26 @@ function getDependentViewsFromViewName(viewName) {
 }
 
 /**
- * Get view data from tablename.
+ * @see getViewData
  *
- * @param  {object|string} tableName
+ * @param  {array}   viewNames
+ * @return {Promise}           Resolves to an array of 'view data' objects.
+ */
+function mapViewNamesToViewData(viewNames) {
+    return Promise.all(viewNames.map(function(viewName) {
+        return getViewData(viewName);
+    }));
+}
+
+/**
+ * Initiate a client connect.
+ *
  * @return {Promise}
  */
-module.exports = function getViewDataFromTableName(
-    connectionConfig,
-    tableName
-) {
-    if (!connectionConfig) {
-        throw new Error('PG connection configuration required');
+function getConnectedClient() {
+    if (!client) {
+        return Promise.reject(new Error('PG client not configured'));
     }
-
-    var connectionString = connectionConfig instanceof Object ?
-        getConnectionString(connectionConfig) :
-        connectionConfig;
-
-    /** Mutate module-level `client` for internal use */
-    client = new pg.Client(connectionString);
 
     return new Promise(function(resolve, reject) {
         client.connect(function(error) {
@@ -247,48 +218,68 @@ module.exports = function getViewDataFromTableName(
             }
             resolve();
         });
-    })
-        .then(function() {
-            return getDependentViewsFromTableName(tableName);
-        })
-        .then(function(viewNames) {
-            var dependentViews = viewNames.map(function(viewName) {
-                return getDependentViewsFromViewName(viewName);
-            });
+    });
+}
 
-            return Promise.all(
-                [Promise.resolve(viewNames)].concat(dependentViews)
-            );
-        })
+/**
+ * Configure the `pg.Client`.
+ *
+ * @{@link  https://github.com/brianc/node-postgres/wiki/Client#new-clientobject-config--client}
+ *
+ * @param  {object|string} tableName
+ * @return {undefined}
+ */
+function configureClient(clientConfig) {
+    if (!clientConfig) {
+        throw new Error('PG client configuration required');
+    }
+
+    /** Mutate module-level `client` for internal use */
+    client = new pg.Client(clientConfig);
+}
+
+/**
+ * Get view data from a table's name.
+ *
+ * @param  {string}  tableName
+ * @return {Promise}           Resolves to an array of 'view data' objects
+ */
+function getViewDataFromTableName(tableName) {
+    return getConnectedClient()
+        .then(getDependentViewsFromTableName.bind(null, tableName))
+        .then(removeEmptiesAndDuplicates)
+        .then(mapViewNamesToViewData)
         .then(function(results) {
-            var viewNames = results[0];
-            var dependentViews = results.slice(1).filter(function(views) {
-                return views.length > 0;
-            });
-
-            // Remove duplicates
-            return [].concat.apply(viewNames, dependentViews)
-                .reduce(function(singles, viewName) {
-                    if (singles.indexOf(viewName) === -1) {
-                        singles.push(viewName);
-                    }
-                    return singles;
-                }, []);
-        })
-        .then(function(viewNames) {
-            return Promise.all(viewNames.map(function(viewName) {
-                return getViewData(viewName);
-            }));
-        })
-        .then(function(viewDatas) {
-            // Do something useful
-            console.log(viewDatas);
-        })
-        .catch(function(error) {
-            console.error(error);
-        })
-        .then(function() {
             client.end();
+            return results;
+        }, function(error) {
+            client.end();
+            console.error(error);
         });
-};
+}
 
+/**
+ * Get view data from view's name.
+ *
+ * @param  {string}  viewName
+ * @return {Promise}          Resolves to an array of 'view data' objects
+ */
+function getViewDataFromViewName(viewName) {
+    return getConnectedClient()
+        .then(getDependentViewsFromViewName.bind(null, viewName))
+        .then(removeEmptiesAndDuplicates)
+        .then(mapViewNamesToViewData)
+        .then(function(results) {
+            client.end();
+            return results;
+        }, function(error) {
+            client.end();
+            console.error(error);
+        });
+}
+
+module.exports = {
+    config: configureClient,
+    fromTable: getViewDataFromTableName,
+    fromView: getViewDataFromViewName,
+};
