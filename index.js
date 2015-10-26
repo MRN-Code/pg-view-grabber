@@ -2,284 +2,84 @@
 
 'use strict';
 
-var pg = require('pg');
-var Promise = require('bluebird');
+var assign = require('object-assign');
+var path = require('path');
 
-var hasAllPrivileges = require('./utils/has-all-privileges.js');
-var removeEmptiesAndDuplicates =
-    require('./utils/remove-empties-and-duplicates.js');
-
-/** Hold a reference to a `pg.Client`. Configured in the module's export. */
-var client;
+var liquibaseViewMigration = require('./utils/liquibase-view-migration.js');
+var dbOperations = require('./utils/db-operations');
 
 /**
- * Get view permissions
+ * Save migration files.
  *
- * @param  {string}  viewName
- * @return {Promise}          Resolves to an array of permissions lines
- */
-function getViewPermissions(viewName) {
-    var queryString = [
-        'SELECT grantee, string_agg(privilege_type, \', \') AS privileges',
-        'FROM information_schema.role_table_grants',
-        'WHERE table_name=\'' + viewName + '\'',
-        'GROUP BY grantee;',
-    ].join('\n');
-
-    return new Promise(function(resolve, reject) {
-        client.query(queryString, function(error, response) {
-            if (error) {
-                return reject(error);
-            }
-
-            resolve(response.rows);
-        });
-    })
-        .then(function(permissions) {
-            return permissions
-                .map(function(permission) {
-                    var output = '';
-
-                    if (permission && permission.privileges) {
-                        output += 'GRANT ';
-
-                        if (hasAllPrivileges(permission.privileges)) {
-                            output += 'ALL ';
-                        } else {
-                            output += permission.privileges + ' ';
-                        }
-
-                        output += 'ON TABLE ' + viewName + ' TO ';
-                        output += permission.grantee;
-                    }
-
-                    return output;
-                })
-                .filter(function(permission) {
-                    return !!permission;
-                });
-        });
-}
-
-/**
- * Get view data.
+ * Function for both view and table migration files.
  *
- * @param  {string}  viewName
- * @return {Promise}          Resolves to an object with view data.
- */
-function getViewData(viewName) {
-    var queryString = [
-        'SELECT * FROM pg_views',
-        'WHERE viewname = \'' + viewName + '\';',
-    ].join('\n');
-
-    return Promise.all([
-        new Promise(function(resolve, reject) {
-            client.query(queryString, function(error, response) {
-                if (error) {
-                    return reject(error);
-                }
-                resolve(response.rows);
-            });
-        }),
-        getViewPermissions(viewName),
-    ])
-        .then(function(results) {
-            if (!Array.isArray(results[0]) || !results[0].length) {
-                return;
-            }
-
-            var viewData = results[0][0];
-            var viewPermissions = results[1];
-            var ownerSql = 'ALTER TABLE ' + viewData.viewname + ' OWNER TO ' +
-                viewData.viewowner;
-            var permissions = [ownerSql].concat(viewPermissions).join('\n');
-
-            return {
-                definition: viewData.definition,
-                permissions: permissions,
-                schema: viewData.schemaname,
-                viewName: viewName,
-            };
-        });
-}
-
-/**
- * Get all views dependent on a table.
- *
- * @{@link  http://bonesmoses.org/2014/11/05/on-postgresql-view-dependencies/}
- *
- * @param  {string}
+ * @param  {Object}   options
+ * @param  {string}   options.name             Name of the table or view to
+ *                                             target
+ * @param  {string}   [options.author]
+ * @param  {function} [options.formatFilename] Formatter function for migration
+ *                                             files' names.
+ * @param  {string}   [options.id=Date.now()]
+ * @param  {boolean}  [options.isTable=true]
  * @return {Promise}
  */
-function getDependentViewsFromTableName(tableName) {
-    var queryString = [
-        'WITH RECURSIVE vlist AS (',
-        '    SELECT c.oid::REGCLASS AS view_name',
-        '      FROM pg_class c',
-        '     WHERE c.relname = \'' + tableName + '\'',
-        '     UNION ALL',
-        '    SELECT DISTINCT r.ev_class::REGCLASS AS view_name',
-        '      FROM pg_depend d',
-        '      JOIN pg_rewrite r ON (r.oid = d.objid)',
-        '      JOIN vlist ON (vlist.view_name = d.refobjid)',
-        '     WHERE d.refobjsubid != 0',
-        ')',
-        'SELECT * FROM vlist;',
-    ].join('\n');
-
-    return new Promise(function(resolve, reject) {
-        client.query(queryString, function(error, response) {
-            if (error) {
-                return reject(error);
-            }
-
-            resolve(response.rows);
-        });
-    })
-        .then(function(rows) {
-            return rows
-                .map(function(row) {
-                    return row.view_name;
-                })
-                .filter(function(viewName) {
-                    return viewName !== tableName;
-                });
-        });
-}
-
-/**
- * Get all views dependent on a view.
- *
- * @param  {string}
- * @return {Promise}
- */
-function getDependentViewsFromViewName(viewName) {
-    var queryString = [
-        'WITH RECURSIVE vlist AS (',
-        '   SELECT r.ev_class::REGCLASS AS view_name',
-        '     FROM pg_depend d1 join pg_rewrite r on r.oid = d1.objid',
-        '    WHERE d1.refobjid = \'' + viewName + '\'::regclass',
-        '    UNION ALL',
-        '   SELECT DISTINCT r.ev_class::REGCLASS AS view_name',
-        '     FROM pg_depend d',
-        '     JOIN pg_rewrite r ON (r.oid = d.objid)',
-        '     JOIN vlist ON (vlist.view_name = d.refobjid)',
-        '    WHERE d.refobjsubid != 0',
-        ')',
-        'SELECT DISTINCT * FROM vlist;',
-    ].join('\n');
-
-    return new Promise(function(resolve, reject) {
-        client.query(queryString, function(error, response) {
-            if (error) {
-                return reject(error);
-            }
-            resolve(response.rows);
-        });
-    })
-        .then(function(rows) {
-            return rows
-                .map(function(row) {
-                    return row.view_name;
-                })
-                .filter(function(name) {
-                    return name !== viewName;
-                });
-        });
-}
-
-/**
- * @see getViewData
- *
- * @param  {array}   viewNames
- * @return {Promise}           Resolves to an array of 'view data' objects.
- */
-function mapViewNamesToViewData(viewNames) {
-    return Promise.all(viewNames.map(function(viewName) {
-        return getViewData(viewName);
-    }));
-}
-
-/**
- * Initiate a client connect.
- *
- * @return {Promise}
- */
-function getConnectedClient() {
-    if (!client) {
-        return Promise.reject(new Error('PG client not configured'));
+function saveMigrationFiles(options) {
+    if (!('isTable' in options)) {
+        options.isTable = true;
     }
 
-    return new Promise(function(resolve, reject) {
-        client.connect(function(error) {
-            if (error) {
-                reject(error);
-            }
-            resolve();
-        });
+    var author = options.author;
+    var formatFilename = options.formatFilename;
+    var id = options.id;
+    var name = options.name;
+    var operator = options.isTable ?
+        dbOperations.getViewDataFromTableName :
+        dbOperations.getViewDataFromViewName;
+
+    return operator(name)
+        .then(function(viewDatas) {
+            return Promise.all(viewDatas.map(function(viewData) {
+                var migrationOptions = assign({}, viewData, {
+                    author: author,
+                    formatFilename: formatFilename,
+                    id: id,
+                });
+
+                return liquibaseViewMigration.saveMigration(migrationOptions);
+            }));
     });
 }
 
 /**
- * Configure the `pg.Client`.
+ * Save migration files for a table.
  *
- * @{@link  https://github.com/brianc/node-postgres/wiki/Client#new-clientobject-config--client}
+ * @see saveMigrationFiles
  *
- * @param  {object|string} tableName
- * @return {undefined}
+ * @param  {Object}  options
+ * @param  {string}  options.name Table's name
+ * @return {Promise}
  */
-function configureClient(clientConfig) {
-    if (!clientConfig) {
-        throw new Error('PG client configuration required');
-    }
-
-    /** Mutate module-level `client` for internal use */
-    client = new pg.Client(clientConfig);
+function saveTableMigration(options) {
+    return saveMigrationFiles(assign({}, options, { isTable: true }));
 }
 
 /**
- * Get view data from a table's name.
+ * Save migration files for a view.
  *
- * @param  {string}  tableName
- * @return {Promise}           Resolves to an array of 'view data' objects
- */
-function getViewDataFromTableName(tableName) {
-    return getConnectedClient()
-        .then(getDependentViewsFromTableName.bind(null, tableName))
-        .then(removeEmptiesAndDuplicates)
-        .then(mapViewNamesToViewData)
-        .then(function(results) {
-            client.end();
-            return results;
-        }, function(error) {
-            client.end();
-            console.error(error);
-        });
-}
-
-/**
- * Get view data from view's name.
+ * @see saveMigrationFiles
  *
- * @param  {string}  viewName
- * @return {Promise}          Resolves to an array of 'view data' objects
+ * @param  {Object}  options
+ * @param  {string}  options.name View's name
+ * @return {Promise}
  */
-function getViewDataFromViewName(viewName) {
-    return getConnectedClient()
-        .then(getDependentViewsFromViewName.bind(null, viewName))
-        .then(removeEmptiesAndDuplicates)
-        .then(mapViewNamesToViewData)
-        .then(function(results) {
-            client.end();
-            return results;
-        }, function(error) {
-            client.end();
-            console.error(error);
-        });
+function saveViewMigration(options) {
+    return saveMigrationFiles(assign({}, options, { isTable: false }));
 }
 
 module.exports = {
-    config: configureClient,
-    fromTable: getViewDataFromTableName,
-    fromView: getViewDataFromViewName,
+    config: dbOperations.configureClient,
+    fromTable: dbOperations.getViewDataFromTableName,
+    fromView: dbOperations.getViewDataFromViewName,
+    saveTableMigration: saveTableMigration,
+    saveViewMigration: saveViewMigration,
 };

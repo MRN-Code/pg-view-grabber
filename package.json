@@ -8,6 +8,7 @@
   "dependencies": {
     "bluebird": "^2.10.2",
     "handlebars": "^4.0.3",
+    "object-assign": "^4.0.1",
     "pg": "^4.4.3"
   },
   "homepage": "https://github.com/MRN-Code/pg-view-grabber#readme",

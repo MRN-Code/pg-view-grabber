@@ -10,12 +10,12 @@
         <dropView viewName="{{ name }}" schema="{{ schema }}" />
         <createView viewName="{{ name }}" schema="{{ schema }}">
 <![CDATA[
-{{ definition }}
+{{{ definition }}}
 ]]>
         </createView>
         <sql>
 <![CDATA[
-{{ permissions }}
+{{{ permissions }}}
 ]]>
         </sql>
 
@@ -23,12 +23,12 @@
             <dropView viewName="{{ name }}" schema="{{ schema }}" />
             <createView viewName="{{ name }}" schema="{{ schema }}">
 <![CDATA[
-{{ definition }}
+{{{ definition }}}
 ]]>
             </createView>
             <sql>
 <![CDATA[
-{{ permissions }}
+{{{ permissions }}}
 ]]>
             </sql>
         </rollback>
