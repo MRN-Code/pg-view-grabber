@@ -2,7 +2,6 @@
 
 'use strict';
 
-var config = require('config');
 var pg = require('pg');
 var Promise = require('bluebird');
 
