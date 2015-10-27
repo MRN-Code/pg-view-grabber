@@ -4,14 +4,15 @@
 
 var assign = require('object-assign');
 var path = require('path');
+var Promise = require('bluebird');
 
 var liquibaseViewMigration = require('./utils/liquibase-view-migration.js');
 var dbOperations = require('./utils/db-operations');
 
 /**
- * Save migration files.
+ * Handle migration tasks.
  *
- * Function for both view and table migration files.
+ * Function for both view and table migration files saving and `get`-ing.
  *
  * @param  {Object}   options
  * @param  {string}   options.name             Name of the table or view to
@@ -21,11 +22,15 @@ var dbOperations = require('./utils/db-operations');
  *                                             files' names.
  * @param  {string}   [options.id=Date.now()]
  * @param  {boolean}  [options.isTable=true]
+ * @param  {boolean}  [options.saveFiles=false]
  * @return {Promise}
  */
-function saveMigrationFiles(options) {
+function doMigration(options) {
     if (!('isTable' in options)) {
         options.isTable = true;
+    }
+    if (!('saveFiles' in options)) {
+        options.saveFiles = false;
     }
 
     var author = options.author;
@@ -35,9 +40,16 @@ function saveMigrationFiles(options) {
     var operator = options.isTable ?
         dbOperations.getViewDataFromTableName :
         dbOperations.getViewDataFromViewName;
+    var processor = options.saveFiles ?
+        liquibaseViewMigration.saveMigration :
+        liquibaseViewMigration.getMigrationContents;
 
     return operator(name)
         .then(function(viewDatas) {
+            if (!Array.isArray(viewDatas)) {
+                return Promise.resolve();
+            }
+
             return Promise.all(viewDatas.map(function(viewData) {
                 var migrationOptions = assign({}, viewData, {
                     author: author,
@@ -45,41 +57,81 @@ function saveMigrationFiles(options) {
                     id: id,
                 });
 
-                return liquibaseViewMigration.saveMigration(migrationOptions);
+                return processor(migrationOptions);
             }));
     });
 }
 
 /**
+ * Get migration templates for a table.
+ *
+ * @see doMigration
+ *
+ * @param  {Object}  options
+ * @param  {string}  options.name Table's name
+ * @return {Promise}
+ */
+function getTableMigration(options) {
+    return doMigration(assign({}, options, {
+        isTable: true,
+        saveFiles: false,
+    }));
+}
+
+/**
+ * Get migration templates for a view.
+ *
+ * @see doMigration
+ *
+ * @param  {Object}  options
+ * @param  {string}  options.name View's name
+ * @return {Promise}
+ */
+function getViewMigration(options) {
+    return doMigration(assign({}, options, {
+        isTable: false,
+        saveFiles: false,
+    }));
+}
+
+/**
  * Save migration files for a table.
  *
- * @see saveMigrationFiles
+ * @see doMigration
  *
  * @param  {Object}  options
  * @param  {string}  options.name Table's name
  * @return {Promise}
  */
 function saveTableMigration(options) {
-    return saveMigrationFiles(assign({}, options, { isTable: true }));
+    return doMigration(assign({}, options, {
+        isTable: true,
+        saveFiles: true,
+    }));
 }
 
 /**
  * Save migration files for a view.
  *
- * @see saveMigrationFiles
+ * @see doMigration
  *
  * @param  {Object}  options
  * @param  {string}  options.name View's name
  * @return {Promise}
  */
 function saveViewMigration(options) {
-    return saveMigrationFiles(assign({}, options, { isTable: false }));
+    return doMigration(assign({}, options, {
+        isTable: false,
+        saveFiles: true,
+    }));
 }
 
 module.exports = {
     config: dbOperations.configureClient,
     fromTable: dbOperations.getViewDataFromTableName,
     fromView: dbOperations.getViewDataFromViewName,
+    getTableMigration: getTableMigration,
+    getViewMigration: getViewMigration,
     saveTableMigration: saveTableMigration,
     saveViewMigration: saveViewMigration,
 };

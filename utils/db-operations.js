@@ -12,6 +12,14 @@ var removeEmptiesAndDuplicates = require('./remove-empties-and-duplicates.js');
 var client;
 
 /**
+ * Hold a reference to the `pg.Client` configuration.
+ *
+ * @todo  This is necessary to avoid race conditions between closing and opening
+ *        clients. Figure out a more secure way to do this.
+ */
+var config;
+
+/**
  * Get view permissions
  *
  * @param  {string}  viewName
@@ -206,11 +214,21 @@ function mapViewNamesToViewData(viewNames) {
  * @return {Promise}
  */
 function getConnectedClient() {
-    if (!client) {
+    if (!config) {
         return Promise.reject(new Error('PG client not configured'));
     }
 
+    /**
+     * @todo  Figure out a better way to tap into official 'pg' APIs.
+     */
+    if (client && !client.connection._ending) {
+        return Promise.resolve(client);
+    }
+
     return new Promise(function(resolve, reject) {
+        /** Mutate module-level `client` for internal use */
+        client = new pg.Client(config);
+
         client.connect(function(error) {
             if (error) {
                 reject(error);
@@ -218,6 +236,23 @@ function getConnectedClient() {
             resolve();
         });
     });
+}
+
+/**
+ * Close the connected client.
+ *
+ * @{@link  https://github.com/brianc/node-postgres/wiki/Client#drain-}
+ *
+ * @return {Promise}
+ */
+function closeClient() {
+    if (client) {
+        if (client.activeQuery) {
+            client.once('drain', client.end.bind(client));
+        } else {
+            client.end();
+        }
+    }
 }
 
 /**
@@ -233,8 +268,12 @@ function configureClient(clientConfig) {
         throw new Error('PG client configuration required');
     }
 
-    /** Mutate module-level `client` for internal use */
-    client = new pg.Client(clientConfig);
+    /**
+     * Store in module.
+     *
+     * @todo  Figure out a better way to do this.
+     */
+    config = clientConfig;
 }
 
 /**
@@ -248,13 +287,7 @@ function getViewDataFromTableName(tableName) {
         .then(getDependentViewsFromTableName.bind(null, tableName))
         .then(removeEmptiesAndDuplicates)
         .then(mapViewNamesToViewData)
-        .then(function(results) {
-            client.end();
-            return results;
-        }, function(error) {
-            client.end();
-            console.error(error);
-        });
+        .finally(closeClient);
 }
 
 /**
@@ -268,13 +301,7 @@ function getViewDataFromViewName(viewName) {
         .then(getDependentViewsFromViewName.bind(null, viewName))
         .then(removeEmptiesAndDuplicates)
         .then(mapViewNamesToViewData)
-        .then(function(results) {
-            client.end();
-            return results;
-        }, function(error) {
-            client.end();
-            console.error(error);
-        });
+        .finally(closeClient);
 }
 
 module.exports = {
