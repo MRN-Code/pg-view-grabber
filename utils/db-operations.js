@@ -28,7 +28,9 @@ var config;
 function getViewPermissions(viewName) {
     var queryString = [
         `
-        SELECT grantee, string_agg(privilege_type, ', ') AS privileges
+        SELECT
+           grantee,
+           string_agg(privilege_type, ', ') AS privileges
         FROM information_schema.role_table_grants
         WHERE table_name='${viewName}'
         GROUP BY grantee;
@@ -79,7 +81,8 @@ function getViewPermissions(viewName) {
 function getViewData(viewName) {
     var queryString = [
         `
-        SELECT * FROM pg_views
+        SELECT *
+        FROM pg_views
         WHERE viewname = '${viewName}';
         `
     ].join('\n');
@@ -127,17 +130,20 @@ function getDependentViewsFromTableName(tableName) {
     var queryString = [
         `
         WITH RECURSIVE vlist AS (
-            SELECT c.oid::REGCLASS AS view_name
-              FROM pg_class c
-             WHERE c.relname = '${tableName}'
-             UNION ALL
-            SELECT DISTINCT r.ev_class::REGCLASS AS view_name
-              FROM pg_depend d
-              JOIN pg_rewrite r ON (r.oid = d.objid)
-              JOIN vlist ON (vlist.view_name = d.refobjid)
-             WHERE d.refobjsubid != 0
+            SELECT
+               c.oid::REGCLASS AS view_name
+            FROM pg_class c
+            WHERE c.relname = '${tableName}'
+            UNION ALL
+            SELECT DISTINCT
+               r.ev_class::REGCLASS AS view_name
+            FROM pg_depend d
+            JOIN pg_rewrite r ON (r.oid = d.objid)
+            JOIN vlist ON (vlist.view_name = d.refobjid)
+            WHERE d.refobjsubid != 0
         )
-        SELECT * FROM vlist;
+        SELECT *
+        FROM vlist;
         `
     ].join('\n');
 
@@ -171,17 +177,20 @@ function getDependentViewsFromViewName(viewName) {
     var queryString = [
         `
         WITH RECURSIVE vlist AS (
-           SELECT r.ev_class::REGCLASS AS view_name
-             FROM pg_depend d1 join pg_rewrite r on r.oid = d1.objid
-            WHERE d1.refobjid = '${viewName}'::regclass
-            UNION ALL
-           SELECT DISTINCT r.ev_class::REGCLASS AS view_name
-             FROM pg_depend d
-             JOIN pg_rewrite r ON (r.oid = d.objid)
-             JOIN vlist ON (vlist.view_name = d.refobjid)
-            WHERE d.refobjsubid != 0
+           SELECT
+              r.ev_class::REGCLASS AS view_name
+           FROM pg_depend d1 join pg_rewrite r on r.oid = d1.objid
+           WHERE d1.refobjid = '${viewName}'::regclass
+           UNION ALL
+           SELECT DISTINCT
+              r.ev_class::REGCLASS AS view_name
+           FROM pg_depend d
+           JOIN pg_rewrite r ON (r.oid = d.objid)
+           JOIN vlist ON (vlist.view_name = d.refobjid)
+           WHERE d.refobjsubid != 0
         )
-        SELECT DISTINCT * FROM vlist;
+        SELECT DISTINCT *
+        FROM vlist;
         `
     ].join('\n');
 
