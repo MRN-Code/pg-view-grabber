@@ -6,10 +6,10 @@
   "author": "Cory Reed <creed@mrn.org>",
   "license": "MIT",
   "dependencies": {
-    "bluebird": "^2.10.2",
+    "bluebird": "^3.4.6",
     "handlebars": "^4.0.3",
     "object-assign": "^4.0.1",
-    "pg": "^4.4.3"
+    "pg": "^6.1.0"
   },
   "homepage": "https://github.com/MRN-Code/pg-view-grabber#readme",
   "bugs": {
