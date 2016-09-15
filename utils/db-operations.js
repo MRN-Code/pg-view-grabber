@@ -130,7 +130,7 @@ function getDependentViewsFromTableName(tableName) {
     var queryString = [
         `
         WITH RECURSIVE vlist AS (
-            SELECT
+            SELECT DISTINCT
                c.oid::REGCLASS AS view_name
             FROM pg_class c
             WHERE c.relname = '${tableName}'
@@ -142,7 +142,7 @@ function getDependentViewsFromTableName(tableName) {
             JOIN vlist ON (vlist.view_name = d.refobjid)
             WHERE d.refobjsubid != 0
         )
-        SELECT *
+        SELECT DISTINCT *
         FROM vlist;
         `
     ].join('\n');
@@ -177,7 +177,7 @@ function getDependentViewsFromViewName(viewName) {
     var queryString = [
         `
         WITH RECURSIVE vlist AS (
-           SELECT
+           SELECT DISTINCT
               r.ev_class::REGCLASS AS view_name
            FROM pg_depend d1 join pg_rewrite r on r.oid = d1.objid
            WHERE d1.refobjid = '${viewName}'::regclass
