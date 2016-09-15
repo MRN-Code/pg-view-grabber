@@ -120,6 +120,7 @@ function getViewData(viewName) {
 
 /**
  * Get all views dependent on a table.
+ * Will recursively search for dependencies of dependencies
  *
  * @{@link  http://bonesmoses.org/2014/11/05/on-postgresql-view-dependencies/}
  *
@@ -169,6 +170,7 @@ function getDependentViewsFromTableName(tableName) {
 
 /**
  * Get all views dependent on a view.
+ * Will recursively search for dependencies of dependencies
  *
  * @param  {string}
  * @return {Promise}
