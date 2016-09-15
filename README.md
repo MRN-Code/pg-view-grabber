@@ -101,3 +101,8 @@ All Liquibase methods have the same argument object:
 ## Testing
 
 Testing assumes you’re on the MRN VPN and you have a valid database map in _/coins/coins_auth/conn/dbmap.json_. Run tests with `npm test`. Run linting with `npm run lint`.
+
+## License
+
+MIT. See [LICENSE](./LICENSE) for details.
+
