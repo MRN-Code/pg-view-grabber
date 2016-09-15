@@ -78,8 +78,10 @@ function getViewPermissions(viewName) {
  */
 function getViewData(viewName) {
     var queryString = [
-        'SELECT * FROM pg_views',
-        'WHERE viewname = \'' + viewName + '\';',
+        `
+        SELECT * FROM pg_views
+        WHERE viewname = '${viewName}';
+        `
     ].join('\n');
 
     return Promise.all([
