@@ -9,15 +9,15 @@ var pgViewGrabber = require('../index.js');
  * @todo  Don't lock down to `mrsdba` on development. Ideally, the test uses a
  *        local Postgres database that is created/populated for each test run.
  */
-var dbConfig = require('/coins/coins_auth/conn/dbmap.json').dev.mrs;
+var dbConfig = require('/coins/config/dbmap.json');
 
 test('setup', function(t) {
     pgViewGrabber.config({
-        database: dbConfig.db,
-        host: dbConfig.host,
-        password: dbConfig.password,
-        port: dbConfig.port,
-        user: dbConfig.username,
+        database: dbConfig._default.db,
+        host: dbConfig.development._default.host,
+        password: dbConfig._apps.mrs.password,
+        port: dbConfig._default.port,
+        user: dbConfig._apps.mrs.username,
     });
 
     t.end();
