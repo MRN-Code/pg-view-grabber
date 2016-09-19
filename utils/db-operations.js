@@ -296,6 +296,21 @@ function configureClient(clientConfig) {
 }
 
 /**
+ * Get dependent views from a table's name.
+ * Note: this is very similar to getViewDataFromTableName except that it
+ *       is missing the last promise chain request: mapViewNamesToViewData
+ *
+ * @param  {string}  tableName
+ * @return {Promise} Resolves to an array of view_names
+ */
+function getDependenentViewsFromTableName(tableName) {
+    return getConnectedClient()
+        .then(getDependentViewsFromTableName.bind(null, tableName))
+        .then(removeEmptiesAndDuplicates)
+        .finally(closeClient);
+}
+
+/**
  * Get view data from a table's name.
  *
  * @param  {string}  tableName
@@ -332,5 +347,6 @@ module.exports = {
     getConnectedClient: getConnectedClient,
     configureClient: configureClient,
     getViewDataFromTableName: getViewDataFromTableName,
+    getDependenentViewsFromTableName: getDependenentViewsFromTableName,
     getViewDataFromViewName: getViewDataFromViewName,
 };

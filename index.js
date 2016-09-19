@@ -79,6 +79,29 @@ function getTableMigration(options) {
 }
 
 /**
+ * Get dependencies for a table
+ *
+ * @param  {Object}  options
+ * @param  {string}  options.name Table's name
+ * @return {Promise}
+ */
+function getDependencies(options) {
+    let name = options.name;
+    let operator = dbOperations.getDependenentViewsFromTableName;
+
+    return operator(name)
+        .then(function(viewDatas) {
+            if (!Array.isArray(viewDatas)) {
+                return Promise.resolve();
+            }
+
+            return Promise.all(viewDatas.map(function(viewData) {
+                return viewData;
+            }));
+    });
+}
+
+/**
  * Get migration templates for a view.
  *
  * @see doMigration
@@ -131,6 +154,7 @@ module.exports = {
     fromTable: dbOperations.getViewDataFromTableName,
     fromView: dbOperations.getViewDataFromViewName,
     getTableMigration: getTableMigration,
+    getDependencies: getDependencies,
     getViewMigration: getViewMigration,
     saveTableMigration: saveTableMigration,
     saveViewMigration: saveViewMigration,
